@@ -1,72 +1,89 @@
-import "ol/ol.css";
-import MVT from "ol/format/MVT";
-import Map from "ol/Map";
-import Tile from "ol/layer/Tile";
-import VectorTileLayer from "ol/layer/VectorTile";
-import VectorTileSource from "ol/source/VectorTile";
-import XYZ from "ol/source/XYZ";
-import { Fill, Stroke, Style } from "ol/style";
-import View from "ol/View";
-import { fromLonLat } from "ol/proj";
-import ColorScale from "color-scales";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader";
 
-// 单值染色
-const vtLayer = new VectorTileLayer({
-  source: new VectorTileSource({
-    maxZoom: 13,
-    format: new MVT(),
-    url:
-      "https://dev-tile.terraqt.com/tile/xyz/{z}/{x}/{y}.pbf?path=01a1e4a4-2ab2-41d3-bc25-b9a0a4e8d6cd/cor1010210/202106/CN-140123100/vectortiles",
-  }),
-  style: new Style({
-    stroke: new Stroke({
-      color: "gray",
-      width: 1,
-    }),
-    fill: new Fill({
-      color: "red",
-    }),
-  }),
-});
+import Stats from "three/examples/jsm/libs/stats.module.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-// 差值染色
-const vtLayer2 = new VectorTileLayer({
-  source: new VectorTileSource({
-    maxZoom: 13,
-    format: new MVT(),
-    url:
-      "https://dev-tile.terraqt.com/tile/xyz/{z}/{x}/{y}.pbf?path=01a1e4a4-2ab2-41d3-bc25-b9a0a4e8d6cd/der101.c/202106/CN-140123100/vectortiles",
-  }),
-  style: (e) => {
-    const value = e.properties_.mean_value;
-    const colorScale = new ColorScale(0, 1, ["#d64556", "#4aec37"]);
-    const color = colorScale.getColor(value);
+let mixer;
 
-    return new Style({
-      stroke: new Stroke({
-        color: "gray",
-        width: 1,
-      }),
-      fill: new Fill({
-        color: [color.r, color.g, color.b],
-      }),
-    });
+const clock = new THREE.Clock();
+const container = document.body;
+
+const stats = new Stats();
+container.appendChild(stats.dom);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+container.appendChild(renderer.domElement);
+
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfe3dd);
+scene.environment = pmremGenerator.fromScene(
+  new RoomEnvironment(),
+  0.04
+).texture;
+
+const camera = new THREE.PerspectiveCamera(
+  40,
+  window.innerWidth / window.innerHeight,
+  1,
+  100
+);
+camera.position.set(5, 2, 8);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.5, 0);
+controls.update();
+controls.enablePan = false;
+controls.enableDamping = true;
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath("https://threejs.org/examples/js/libs/draco/");
+
+const loader = new GLTFLoader();
+loader.setDRACOLoader(dracoLoader);
+loader.load(
+  "/LittlestTokyo.glb",
+  function (gltf) {
+    const model = gltf.scene;
+    model.position.set(1, 1, 0);
+    model.scale.set(0.01, 0.01, 0.01);
+    scene.add(model);
+
+    mixer = new THREE.AnimationMixer(model);
+    mixer.clipAction(gltf.animations[0]).play();
+
+    animate();
   },
-});
+  undefined,
+  function (e) {
+    console.error(e);
+  }
+);
 
-const BaseLayer = new Tile({
-  source: new XYZ({
-    crossOrigin: "anonymous",
-    url:
-      "http://t0.tianditu.gov.cn/img_w/wmts?tk=你的token&SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=tiles",
-  }),
-});
+window.onresize = function () {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
 
-new Map({
-  layers: [BaseLayer, vtLayer],
-  target: "map",
-  view: new View({
-    zoom: 12,
-    center: fromLonLat([111.8207, 38.066]),
-  }),
-});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const delta = clock.getDelta();
+
+  mixer.update(delta);
+
+  controls.update();
+
+  stats.update();
+
+  renderer.render(scene, camera);
+}
